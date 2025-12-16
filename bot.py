@@ -77,14 +77,10 @@ async def get_movie_name(msg: types.Message, state: FSMContext):
 
 @dp.message_handler(content_types=types.ContentType.PHOTO, state=AddMovie.poster)
 async def get_movie_poster(msg: types.Message, state: FSMContext):
-    data = await state.get_data()
-    movies[data["movie_key"]] = {
-        "name": data["movie_name"],
-        "poster": msg.photo[-1].file_id,
-        "episodes": {}
-    }
-    await msg.answer("✅ Movie + Poster သိမ်းပြီးပါပြီ")
-    await state.finish()
+   caption = f"🎬 {movie['name']}"
+if movie.get("link"):
+    caption += f"\n\n▶️ Watch: {movie['link']}"
+
 
 # ============ ADD EPISODE ============
 @dp.message_handler(text="➕ Add Episode")
