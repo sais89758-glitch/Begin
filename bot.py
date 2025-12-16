@@ -1,3 +1,4 @@
+import os
 import logging
 from aiogram import Bot, Dispatcher, executor, types
 from aiogram.contrib.fsm_storage.memory import MemoryStorage
@@ -5,16 +6,19 @@ from aiogram.dispatcher import FSMContext
 from aiogram.dispatcher.filters.state import State, StatesGroup
 
 # ============ CONFIG ============
-BOT_TOKEN = "8210400472:AAGsYRGnoyVCJH1gBw32mF2QpFZ84it-Ick"
+BOT_TOKEN = os.getenv("BOT_TOKEN")   # Railway Variable ကနေယူမယ်
 ADMINS = [8466996343]
 # ================================
 
 logging.basicConfig(level=logging.INFO)
 
+if not BOT_TOKEN:
+    raise ValueError("BOT_TOKEN is not set. Please add it in Railway Variables.")
+
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher(bot, storage=MemoryStorage())
 
-# In-memory storage (later JSON/DB ပြောင်းမယ်)
+# In-memory storage (later JSON/DB ပြောင်းနိုင်)
 movies = {}
 
 # ============ STATES ============
