@@ -163,3 +163,16 @@ async def admin_get_links(msg: types.Message, state: FSMContext):
 # ================= RUN =================
 if __name__ == "__main__":
     executor.start_polling(dp, skip_updates=True)
+
+# ========= VIEW LOG STORAGE =========
+
+VIEW_LOG = {}  
+# format:
+# {
+#   user_id: {
+#       "name": "username",
+#       "category": "အိမ်ထောင်ရေး",
+#       "movie": "Movie Name",
+#       "episode": "Episode 3"
+#   }
+# }
