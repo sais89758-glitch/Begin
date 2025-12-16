@@ -5,143 +5,161 @@ from aiogram.contrib.fsm_storage.memory import MemoryStorage
 from aiogram.dispatcher import FSMContext
 from aiogram.dispatcher.filters.state import State, StatesGroup
 
-# ========== CONFIG ==========
+# ================= CONFIG =================
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-ADMINS = [8466996343]
-# ============================
+ADMINS = [8466996343]   # မင်း Telegram ID
+# =========================================
 
 logging.basicConfig(level=logging.INFO)
-
-if not BOT_TOKEN:
-    raise ValueError("BOT_TOKEN not set")
 
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher(bot, storage=MemoryStorage())
 
-# In-memory storage
-movies = {}
+# ================= DATA ===================
+# structure:
+# categories = {
+#   "marriage": {
+#       "name": "အိမ်ထောင်ရေးကား",
+#       "movies": {
+#           "m1": {
+#               "poster": file_id,
+#               "episodes": {
+#                   "အပိုင်း (1)": "https://t.me/xxx/1"
+#               }
+#           }
+#       }
+#   }
+# }
 
-# ========== STATES ==========
+categories = {
+    "love": {"name": "❤️ အချစ်ကား", "movies": {}},
+    "marriage": {"name": "💍 အိမ်ထောင်ရေးကား", "movies": {}},
+    "war": {"name": "⚔️ စစ်ကား", "movies": {}},
+    "palace": {"name": "🏯 နန်းတွင်းကား", "movies": {}},
+    "crime": {"name": "🔪 ရာဇဝတ်ကား", "movies": {}},
+    "action": {"name": "🔥 အက်ရှင်ကား", "movies": {}},
+    "family": {"name": "👨‍👩‍👧 မိသားစုကား", "movies": {}},
+    "school": {"name": "🎒 ကျောင်းကား", "movies": {}},
+    "history": {"name": "📜 သမိုင်းကား", "movies": {}},
+    "fantasy": {"name": "🧙 ဖန်တီးကား", "movies": {}},
+}
+
+# ================= STATES =================
 class AddMovie(StatesGroup):
-    key = State()
-    name = State()
+    category = State()
     poster = State()
-    link = State()
+    links = State()
 
-class AddEpisode(StatesGroup):
-    movie_key = State()
-    ep_name = State()
-    ep_link = State()
-
-# ========== START ==========
+# ================= MEMBER =================
 @dp.message_handler(commands=["start"])
 async def start(msg: types.Message):
+    kb = types.InlineKeyboardMarkup(row_width=2)
+    for k, v in categories.items():
+        kb.insert(types.InlineKeyboardButton(v["name"], callback_data=f"cat:{k}"))
+    await msg.answer("🎬 ရုပ်ရှင်အမျိုးအစားရွေးပါ", reply_markup=kb)
+
+
+@dp.callback_query_handler(lambda c: c.data.startswith("cat:"))
+async def open_category(call: types.CallbackQuery):
+    key = call.data.split(":")[1]
+    movies = categories[key]["movies"]
+
     if not movies:
-        await msg.answer("🎬 Movie မရှိသေးပါ")
+        await call.message.answer("❌ ဒီအမျိုးအစားထဲမှာ မရှိသေးပါ")
         return
 
+    kb = types.InlineKeyboardMarkup(row_width=2)
+    for m_id in movies:
+        kb.insert(types.InlineKeyboardButton(f"🎞 Movie {m_id}", callback_data=f"movie:{key}:{m_id}"))
+
+    await call.message.answer("🎬 Poster ရွေးပါ", reply_markup=kb)
+
+
+@dp.callback_query_handler(lambda c: c.data.startswith("movie:"))
+async def open_movie(call: types.CallbackQuery):
+    _, cat, mid = call.data.split(":")
+    movie = categories[cat]["movies"][mid]
+
+    kb = types.InlineKeyboardMarkup(row_width=2)
+    for ep in movie["episodes"]:
+        kb.insert(types.InlineKeyboardButton(ep, callback_data=f"ep:{cat}:{mid}:{ep}"))
+
+    await bot.send_photo(
+        call.message.chat.id,
+        photo=movie["poster"],
+        caption="အပိုင်းရွေးပါ 👇",
+        reply_markup=kb
+    )
+
+
+@dp.callback_query_handler(lambda c: c.data.startswith("ep:"))
+async def open_episode(call: types.CallbackQuery):
+    _, cat, mid, ep = call.data.split(":", 3)
+    link = categories[cat]["movies"][mid]["episodes"][ep]
+
     kb = types.InlineKeyboardMarkup()
-    for k, v in movies.items():
-        kb.add(types.InlineKeyboardButton(v["name"], callback_data=f"movie:{k}"))
+    kb.add(types.InlineKeyboardButton("▶️ ကြည့်ရန်", url=link))
 
-    await msg.answer("🎬 Movie List", reply_markup=kb)
+    await call.message.answer(ep, reply_markup=kb)
 
-# ========== ADMIN ==========
+# ================= ADMIN =================
 @dp.message_handler(commands=["admin"])
 async def admin(msg: types.Message):
     if msg.from_user.id not in ADMINS:
         return
 
     kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    kb.add("➕ Add Movie", "➕ Add Episode")
-    await msg.answer("🛠 Admin Panel", reply_markup=kb)
+    for k, v in categories.items():
+        kb.add(v["name"])
+    await msg.answer("🛠 ဇတ်လမ်းအမျိုးအစားရွေးပါ", reply_markup=kb)
 
-# ========== ADD MOVIE ==========
-@dp.message_handler(text="➕ Add Movie")
-async def add_movie(msg: types.Message):
+
+@dp.message_handler(lambda m: m.text in [v["name"] for v in categories.values()])
+async def admin_choose_category(msg: types.Message, state: FSMContext):
     if msg.from_user.id not in ADMINS:
         return
-    await msg.answer("🎬 Movie key ထည့်ပါ (ဥပမာ: movie_a)")
-    await AddMovie.key.set()
 
-@dp.message_handler(state=AddMovie.key)
-async def add_movie_key(msg: types.Message, state: FSMContext):
-    await state.update_data(movie_key=msg.text)
-    await msg.answer("🎬 Movie name ထည့်ပါ")
-    await AddMovie.name.set()
+    for k, v in categories.items():
+        if v["name"] == msg.text:
+            await state.update_data(category=k)
 
-@dp.message_handler(state=AddMovie.name)
-async def add_movie_name(msg: types.Message, state: FSMContext):
-    await state.update_data(movie_name=msg.text)
-    await msg.answer("🖼 Poster ပုံကို ပို့ပါ")
+    await msg.answer("🖼 Poster ပုံပို့ပါ")
     await AddMovie.poster.set()
 
+
 @dp.message_handler(content_types=types.ContentType.PHOTO, state=AddMovie.poster)
-async def add_movie_poster(msg: types.Message, state: FSMContext):
+async def admin_get_poster(msg: types.Message, state: FSMContext):
     await state.update_data(poster=msg.photo[-1].file_id)
-    await msg.answer("🔗 Movie link ထည့်ပါ")
-    await AddMovie.link.set()
-
-@dp.message_handler(state=AddMovie.link)
-async def add_movie_link(msg: types.Message, state: FSMContext):
-    data = await state.get_data()
-    movies[data["movie_key"]] = {
-        "name": data["movie_name"],
-        "poster": data["poster"],
-        "link": msg.text,
-        "episodes": {}
-    }
-    await msg.answer("✅ Movie + Poster + Link သိမ်းပြီးပါပြီ")
-    await state.finish()
-
-# ========== ADD EPISODE ==========
-@dp.message_handler(text="➕ Add Episode")
-async def add_episode(msg: types.Message):
-    if msg.from_user.id not in ADMINS:
-        return
-    await msg.answer("🎬 Movie key ထည့်ပါ")
-    await AddEpisode.movie_key.set()
-
-@dp.message_handler(state=AddEpisode.movie_key)
-async def add_episode_movie(msg: types.Message, state: FSMContext):
-    if msg.text not in movies:
-        await msg.answer("❌ Movie key မမှန်ပါ")
-        return
-    await state.update_data(movie_key=msg.text)
-    await msg.answer("🎞 Episode name ထည့်ပါ")
-    await AddEpisode.ep_name.set()
-
-@dp.message_handler(state=AddEpisode.ep_name)
-async def add_episode_name(msg: types.Message, state: FSMContext):
-    await state.update_data(ep_name=msg.text)
-    await msg.answer("🔗 Episode link ထည့်ပါ")
-    await AddEpisode.ep_link.set()
-
-@dp.message_handler(state=AddEpisode.ep_link)
-async def add_episode_link(msg: types.Message, state: FSMContext):
-    data = await state.get_data()
-    movies[data["movie_key"]]["episodes"][data["ep_name"]] = msg.text
-    await msg.answer("✅ Episode သိမ်းပြီးပါပြီ")
-    await state.finish()
-
-# ========== OPEN MOVIE ==========
-@dp.callback_query_handler(lambda c: c.data.startswith("movie:"))
-async def open_movie(call: types.CallbackQuery):
-    key = call.data.split(":")[1]
-    movie = movies[key]
-
-    kb = types.InlineKeyboardMarkup(row_width=1)
-
-    for ep_name, ep_link in movie["episodes"].items():
-        kb.add(types.InlineKeyboardButton(text=ep_name, url=ep_link))
-
-    await bot.send_photo(
-        call.message.chat.id,
-        photo=movie["poster"],
-        caption=f"🎬 {movie['name']}\nအပိုင်းရွေးပါ 👇",
-        reply_markup=kb
+    await msg.answer(
+        "📌 Caption ထဲမှာ Episode link တွေကို ဒီလိုတစ်ကြောင်းစီရေးပါ\n\n"
+        "အပိုင်း (1)|https://t.me/xxx/1\n"
+        "အပိုင်း (2)|https://t.me/xxx/2"
     )
+    await AddMovie.links.set()
 
-# ========== RUN ==========
+
+@dp.message_handler(state=AddMovie.links)
+async def admin_get_links(msg: types.Message, state: FSMContext):
+    data = await state.get_data()
+    cat = data["category"]
+    poster = data["poster"]
+
+    episodes = {}
+    for line in msg.text.splitlines():
+        if "|" in line:
+            name, link = line.split("|", 1)
+            episodes[name.strip()] = link.strip()
+
+    mid = f"m{len(categories[cat]['movies']) + 1}"
+
+    categories[cat]["movies"][mid] = {
+        "poster": poster,
+        "episodes": episodes
+    }
+
+    await msg.answer("✅ ဇတ်လမ်းတစ်ခုလုံး သိမ်းပြီးပါပြီ")
+    await state.finish()
+
+# ================= RUN =================
 if __name__ == "__main__":
     executor.start_polling(dp, skip_updates=True)
