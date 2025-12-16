@@ -46,6 +46,39 @@ CATEGORY_CHANNELS = {
  "😂 ဟာသဇတ်လမ်း": "@comedy_channel",
 }
 
+@dp.callback_query_handler(lambda c: c.data.startswith("admin_cat_"))
+async def admin_choose_category(c: types.CallbackQuery, state: FSMContext):
+    if c.from_user.id not in ADMIN_IDS:
+        await c.answer("Admin မဟုတ်ပါ", show_alert=True)
+        return
+
+    idx = int(c.data.split("_")[-1])
+    category = CATEGORIES[idx]
+
+    await state.update_data(category=category)
+
+    await c.message.answer(
+        f"📸 {category}\n\nPoster ပုံကို ပို့ပါ"
+    )
+    await AdminAdd.poster.set()
+    await c.answer()
+
+@dp.message_handler(commands=["admin"])
+async def admin(m: types.Message):
+    if m.from_user.id not in ADMIN_IDS:
+        return
+
+    kb = InlineKeyboardMarkup(row_width=2)
+    for i, c in enumerate(CATEGORIES):
+        kb.insert(
+            InlineKeyboardButton(
+                f"{i+1}. {c}",
+                callback_data=f"admin_cat_{i}"
+            )
+        )
+
+    await m.answer("⚙️ Category ရွေးပါ", reply_markup=kb)
+
 # ======================= HELPERS =======================
 def cat_kb(prefix):
  kb=InlineKeyboardMarkup(row_width=2)
