@@ -213,3 +213,142 @@ async def view_stats(message: types.Message):
 
     await message.reply(text)
 
+# ================== ADDON : DB + CHANNEL + STATS ==================
+
+import json
+import sqlite3
+from datetime import datetime, date
+
+# ---------- CHANNEL CONFIG ----------
+CHANNEL_ID = -1001234567890        # <- မင်း channel ID
+CHANNEL_USERNAME = "YourChannel"   # <- @ မပါ
+
+# ---------- JSON DB ----------
+JSON_DB = "movies.json"
+if not os.path.exists(JSON_DB):
+    with open(JSON_DB, "w", encoding="utf-8") as f:
+        json.dump({}, f, ensure_ascii=False, indent=2)
+
+def load_json():
+    with open(JSON_DB, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+def save_json(data):
+    with open(JSON_DB, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+
+# ---------- SQLITE DB ----------
+conn = sqlite3.connect("stats.db", check_same_thread=False)
+cur = conn.cursor()
+
+cur.execute("""
+CREATE TABLE IF NOT EXISTS views (
+    user_id INTEGER,
+    movie TEXT,
+    episode INTEGER,
+    day TEXT
+)
+""")
+conn.commit()
+
+def log_view(user_id, movie, episode):
+    cur.execute(
+        "INSERT INTO views VALUES (?,?,?,?)",
+        (user_id, movie, episode, date.today().isoformat())
+    )
+    conn.commit()
+
+# ---------- CHANNEL MEMBER CHECK ----------
+async def is_channel_member(user_id: int):
+    try:
+        m = await bot.get_chat_member(CHANNEL_ID, user_id)
+        return m.status in ["member", "administrator", "creator"]
+    except:
+        return False
+
+# ---------- EPISODE CALLBACK ----------
+@dp.callback_query_handler(lambda c: c.data.startswith("ep|"))
+async def open_episode(call: types.CallbackQuery):
+    user_id = call.from_user.id
+    _, movie, ep = call.data.split("|")
+    ep = int(ep)
+
+    if not await is_channel_member(user_id):
+        await call.message.answer(
+            f"🚫 Channel member မဟုတ်ပါ\n\n👉 https://t.me/{CHANNEL_USERNAME}"
+        )
+        return
+
+    data = load_json()
+    link = data[movie]["episodes"].get(str(ep))
+    if not link:
+        await call.answer("Episode မရှိပါ", show_alert=True)
+        return
+
+    log_view(user_id, movie, ep)
+
+    await call.message.answer(
+        f"▶️ Episode ({ep}) ကို Channel ထဲမှာကြည့်ပါ👇\n{link}"
+    )
+
+# ---------- ADMIN : ADD MOVIE ----------
+@dp.message_handler(commands=["admin"])
+async def admin_panel(msg: types.Message):
+    if msg.from_user.id not in ADMINS:
+        return
+    kb = ReplyKeyboardMarkup(resize_keyboard=True)
+    kb.add("➕ ဇတ်လမ်းအသစ်ထည့်မည်", "📊 Stats")
+    await msg.answer("Admin Panel", reply_markup=kb)
+
+@dp.message_handler(lambda m: m.text == "➕ ဇတ်လမ်းအသစ်ထည့်မည်")
+async def add_movie_start(msg: types.Message):
+    await msg.answer("📸 Poster ပို့ပါ")
+    await AddMovie.poster.set()
+
+@dp.message_handler(content_types=types.ContentType.PHOTO, state=AddMovie.poster)
+async def add_movie_poster(msg: types.Message, state: FSMContext):
+    await state.update_data(poster=msg.photo[-1].file_id)
+    await msg.answer("📝 ဇတ်လမ်းနာမည် ပို့ပါ")
+    await AddMovie.name.set()
+
+@dp.message_handler(state=AddMovie.name)
+async def add_movie_name(msg: types.Message, state: FSMContext):
+    await state.update_data(name=msg.text)
+    await state.update_data(episodes={})
+    await msg.answer("🔗 Episode (1) link ပို့ပါ")
+    await AddMovie.episode.set()
+
+@dp.message_handler(state=AddMovie.episode)
+async def add_movie_episode(msg: types.Message, state: FSMContext):
+    data = await state.get_data()
+    episodes = data["episodes"]
+    ep_no = len(episodes) + 1
+    episodes[str(ep_no)] = msg.text
+    await state.update_data(episodes=episodes)
+    await msg.answer(f"Episode ({ep_no+1}) link ပို့ပါ /done")
+
+@dp.message_handler(commands=["done"], state=AddMovie.episode)
+async def finish_movie(msg: types.Message, state: FSMContext):
+    data = await state.get_data()
+    db = load_json()
+    db[data["name"]] = {
+        "poster": data["poster"],
+        "episodes": data["episodes"]
+    }
+    save_json(db)
+    await state.finish()
+    await msg.answer("✅ ဇတ်လမ်းသိမ်းပြီးပါ")
+
+# ---------- STATS ----------
+@dp.message_handler(lambda m: m.text == "📊 Stats")
+async def stats(msg: types.Message):
+    if msg.from_user.id not in ADMINS:
+        return
+    cur.execute("SELECT movie, COUNT(*) FROM views GROUP BY movie")
+    rows = cur.fetchall()
+    text = "📊 View Stats\n\n"
+    for r in rows:
+        text += f"{r[0]} : {r[1]} views\n"
+    await msg.answer(text)
+
+# ================== END ADDON ==================
