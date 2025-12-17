@@ -1,354 +1,211 @@
 import logging
+import json
+import sqlite3
+from datetime import datetime, timedelta
+
 from aiogram import Bot, Dispatcher, executor, types
 from aiogram.contrib.fsm_storage.memory import MemoryStorage
 from aiogram.dispatcher import FSMContext
 from aiogram.dispatcher.filters.state import State, StatesGroup
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
+# ================= CONFIG =================
 API_TOKEN = "8210400472:AAGsYRGnoyVCJH1gBw32mF2QpFZ84it-Ick"
-ADMIN_IDS = [8466996343]   # 🔴 မင်း Telegram ID ထည့်
+ADMIN_IDS = [8466996343]  # ← သင့် Telegram ID
+MOVIE_JSON = "movies.json"
+STATS_DB = "stats.db"
+# =========================================
 
 logging.basicConfig(level=logging.INFO)
 
 bot = Bot(token=API_TOKEN)
 dp = Dispatcher(bot, storage=MemoryStorage())
 
-# ================= DATA =================
+# ================= CATEGORY =================
+CATEGORIES = {
+    "1": "❤️ အချစ်ဇတ်လမ်း",
+    "2": "💍 အိမ်ထောင်ရေးဇတ်လမ်း",
+    "3": "⚔️ စစ်ဇတ်လမ်း",
+    "4": "🏯 နန်းတွင်းဇတ်လမ်း",
+    "5": "🔪 အက်ရှင်ဇတ်လမ်း",
+    "6": "🔥 အကြမ်းဖက်ဇတ်လမ်း",
+    "7": "👻 သရဲဇတ်လမ်း",
+    "8": "🕵️ စုံထောက်ဇတ်လမ်း",
+    "9": "👨‍👩‍👧 မိသားစုဇတ်လမ်း",
+    "10": "😂 ဟာသဇတ်လမ်း"
+}
 
-CATEGORIES = [
-    "❤️ အချစ်ဇတ်လမ်း",
-    "💍 အိမ်ထောင်ရေးဇတ်လမ်း",
-    "⚔️ စစ်ဇတ်လမ်း",
-    "🏯 နန်းတွင်းဇတ်လမ်း",
-    "🔪 အက်ရှင်ဇတ်လမ်း",
-    "🔥 အကြမ်းဖက်ဇတ်လမ်း",
-    "👻 သရဲဇတ်လမ်း",
-    "🕵️ စုံထောက်ဇတ်လမ်း",
-    "👨‍👩‍👧 မိသားစုဇတ်လမ်း",
-    "😂 ဟာသဇတ်လမ်း"
-]
+# ================= FILE INIT =================
+try:
+    with open(MOVIE_JSON, "r", encoding="utf-8") as f:
+        movies = json.load(f)
+except:
+    movies = {}
 
-MOVIES = {}   # {category: [{poster, title, links[]}]}
-
-# ================= STATES =================
-
-class AdminAdd(StatesGroup):
-    poster = State()
-    title = State()
-    episodes = State()
-
-# ================= USER =================
-
-@dp.message_handler(commands=["start"])
-async def start(m: types.Message):
-    kb = InlineKeyboardMarkup(row_width=2)
-    for i, c in enumerate(CATEGORIES):
-        kb.insert(
-            InlineKeyboardButton(
-                f"{i+1}. {c}",
-                callback_data=f"user_cat_{i}"
-            )
-        )
-    await m.answer("🎬 ဇတ်လမ်းအမျိုးအစားရွေးပါ", reply_markup=kb)
-
-# ================= ADMIN =================
-
-@dp.message_handler(commands=["admin"])
-async def admin(m: types.Message):
-    if m.from_user.id not in ADMIN_IDS:
-        return
-
-    kb = InlineKeyboardMarkup(row_width=2)
-    for i, c in enumerate(CATEGORIES):
-        kb.insert(
-            InlineKeyboardButton(
-                f"{i+1}. {c}",
-                callback_data=f"admin_cat_{i}"
-            )
-        )
-    await m.answer("⚙️ Category ရွေးပါ", reply_markup=kb)
-
-# ---------- Admin choose category ----------
-
-@dp.callback_query_handler(lambda c: c.data.startswith("admin_cat_"))
-async def admin_choose_category(c: types.CallbackQuery, state: FSMContext):
-    if c.from_user.id not in ADMIN_IDS:
-        return
-
-    idx = int(c.data.split("_")[-1])
-    category = CATEGORIES[idx]
-
-    await state.update_data(category=category)
-    await c.message.answer(f"📸 {category}\n\nPoster ပုံကို ပို့ပါ")
-    await AdminAdd.poster.set()
-    await c.answer()
-
-# ---------- Receive poster ----------
-
-@dp.message_handler(content_types=types.ContentType.PHOTO, state=AdminAdd.poster)
-async def get_poster(m: types.Message, state: FSMContext):
-    await state.update_data(poster=m.photo[-1].file_id)
-    await m.answer("📝 ဇတ်လမ်းနာမည် ပို့ပါ")
-    await AdminAdd.title.set()
-
-# ---------- Receive title ----------
-
-@dp.message_handler(state=AdminAdd.title)
-async def get_title(m: types.Message, state: FSMContext):
-    await state.update_data(title=m.text, links=[])
-    await m.answer(
-        "🔗 Episode link တွေ ပို့ပါ\n"
-        "တစ်ကြောင်း = တစ်အပိုင်း\n"
-        "/done နဲ့ပြီးပါ"
-    )
-    await AdminAdd.episodes.set()
-
-# ---------- Receive episode links ----------
-
-@dp.message_handler(state=AdminAdd.episodes)
-async def get_links(m: types.Message, state: FSMContext):
-    if m.text == "/done":
-        data = await state.get_data()
-        cat = data["category"]
-
-        MOVIES.setdefault(cat, []).append({
-            "poster": data["poster"],
-            "title": data["title"],
-            "links": data["links"]
-        })
-
-        await m.answer("✅ ဇတ်လမ်း သိမ်းပြီးပါပြီ")
-        await state.finish()
-        return
-
-    data = await state.get_data()
-    data["links"].append(m.text)
-    await state.update_data(links=data["links"])
-    await m.answer(f"➕ Episode {len(data['links'])} ထည့်ပြီး")
-
-# ================= USER FLOW =================
-
-@dp.callback_query_handler(lambda c: c.data.startswith("user_cat_"))
-async def user_category(c: types.CallbackQuery):
-    idx = int(c.data.split("_")[-1])
-    category = CATEGORIES[idx]
-
-    if category not in MOVIES:
-        await c.answer("ဇတ်လမ်း မရှိသေးပါ", show_alert=True)
-        return
-
-    kb = InlineKeyboardMarkup(row_width=2)
-    for i, m in enumerate(MOVIES[category]):
-        kb.insert(
-            InlineKeyboardButton(
-                m["title"],
-                callback_data=f"movie_{idx}_{i}"
-            )
-        )
-
-    kb.add(InlineKeyboardButton("⬅️ Back", callback_data="back_home"))
-    await c.message.answer(category, reply_markup=kb)
-    await c.answer()
-
-@dp.callback_query_handler(lambda c: c.data.startswith("movie_"))
-async def show_episodes(c: types.CallbackQuery):
-    _, cat_i, mov_i = c.data.split("_")
-    movie = MOVIES[CATEGORIES[int(cat_i)]][int(mov_i)]
-
-    kb = InlineKeyboardMarkup(row_width=5)
-    for i, link in enumerate(movie["links"]):
-        kb.insert(
-            InlineKeyboardButton(
-                f"အပိုင်း ({i+1})",
-                url=link
-            )
-        )
-
-    kb.add(InlineKeyboardButton("⬅️ Back", callback_data=f"user_cat_{cat_i}"))
-
-    await bot.send_photo(
-        c.message.chat.id,
-        movie["poster"],
-        caption=movie["title"],
-        reply_markup=kb
-    )
-    await c.answer()
-
-@dp.callback_query_handler(lambda c: c.data == "back_home")
-async def back_home(c: types.CallbackQuery):
-    await start(c.message)
-    await c.answer()
-
-# ================= RUN =================
-
-if __name__ == "__main__":
-    executor.start_polling(dp, skip_updates=True)
-
-today = datetime.now().date().isoformat()
-week = datetime.now().strftime("%Y-W%U")
-
-movie_views[movie_name] = movie_views.get(movie_name, 0) + 1
-daily_views[today] = daily_views.get(today, 0) + 1
-weekly_views[week] = weekly_views.get(week, 0) + 1
-
-@dp.message_handler(commands=["view"])
-async def view_stats(message: types.Message):
-    if message.from_user.id not in ADMIN_IDS:
-        return
-
-    text = "📊 VIEW STATS\n\n"
-
-    # 🔥 Top Movies
-    text += "🏆 Top Movies:\n"
-    for name, count in sorted(movie_views.items(), key=lambda x: x[1], reverse=True)[:5]:
-        text += f"• {name} — {count} views\n"
-
-    # 📅 Today
-    today = datetime.now().date().isoformat()
-    text += f"\n📆 Today ({today}): {daily_views.get(today, 0)} views\n"
-
-    # 📅 This week
-    week = datetime.now().strftime("%Y-W%U")
-    text += f"🗓 This Week ({week}): {weekly_views.get(week, 0)} views\n"
-
-    await message.reply(text)
-
-# ================== ADDON : DB + CHANNEL + STATS ==================
-
-import json
-import sqlite3
-from datetime import datetime, date
-
-# ---------- CHANNEL CONFIG ----------
-CHANNEL_ID = -1001234567890        # <- မင်း channel ID
-CHANNEL_USERNAME = "YourChannel"   # <- @ မပါ
-
-# ---------- JSON DB ----------
-JSON_DB = "movies.json"
-if not os.path.exists(JSON_DB):
-    with open(JSON_DB, "w", encoding="utf-8") as f:
-        json.dump({}, f, ensure_ascii=False, indent=2)
-
-def load_json():
-    with open(JSON_DB, "r", encoding="utf-8") as f:
-        return json.load(f)
-
-def save_json(data):
-    with open(JSON_DB, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
-
-# ---------- SQLITE DB ----------
-conn = sqlite3.connect("stats.db", check_same_thread=False)
+conn = sqlite3.connect(STATS_DB)
 cur = conn.cursor()
-
 cur.execute("""
 CREATE TABLE IF NOT EXISTS views (
     user_id INTEGER,
-    movie TEXT,
-    episode INTEGER,
-    day TEXT
+    category TEXT,
+    story TEXT,
+    episode TEXT,
+    date TEXT
 )
 """)
 conn.commit()
+conn.close()
 
-def log_view(user_id, movie, episode):
-    cur.execute(
-        "INSERT INTO views VALUES (?,?,?,?)",
-        (user_id, movie, episode, date.today().isoformat())
-    )
-    conn.commit()
+# ================= STATES =================
+class AddStory(StatesGroup):
+    category = State()
+    poster = State()
+    name = State()
+    episode = State()
 
-# ---------- CHANNEL MEMBER CHECK ----------
-async def is_channel_member(user_id: int):
-    try:
-        m = await bot.get_chat_member(CHANNEL_ID, user_id)
-        return m.status in ["member", "administrator", "creator"]
-    except:
-        return False
+# ================= UTIL =================
+def save_movies():
+    with open(MOVIE_JSON, "w", encoding="utf-8") as f:
+        json.dump(movies, f, ensure_ascii=False, indent=2)
 
-# ---------- EPISODE CALLBACK ----------
-@dp.callback_query_handler(lambda c: c.data.startswith("ep|"))
+def back_kb(target):
+    kb = types.InlineKeyboardMarkup()
+    kb.add(types.InlineKeyboardButton("⬅️ Back", callback_data=target))
+    return kb
+
+# ================= MEMBER =================
+@dp.message_handler(commands=["start"])
+async def start(msg: types.Message):
+    kb = types.InlineKeyboardMarkup(row_width=2)
+    for k, v in CATEGORIES.items():
+        kb.insert(types.InlineKeyboardButton(f"{k}. {v}", callback_data=f"cat:{k}"))
+    await msg.answer("🎬 ဇတ်လမ်းအမျိုးအစားရွေးပါ", reply_markup=kb)
+
+@dp.callback_query_handler(lambda c: c.data.startswith("cat:"))
+async def open_category(call: types.CallbackQuery):
+    cat = call.data.split(":")[1]
+    kb = types.InlineKeyboardMarkup(row_width=2)
+    for story in movies.get(cat, {}):
+        kb.insert(types.InlineKeyboardButton(story, callback_data=f"story:{cat}:{story}"))
+    kb.add(types.InlineKeyboardButton("⬅️ Back", callback_data="home"))
+    await call.message.answer("📽 ဇတ်လမ်းရွေးပါ", reply_markup=kb)
+
+@dp.callback_query_handler(lambda c: c.data == "home")
+async def back_home(call: types.CallbackQuery):
+    await start(call.message)
+
+@dp.callback_query_handler(lambda c: c.data.startswith("story:"))
+async def open_story(call: types.CallbackQuery):
+    _, cat, story = call.data.split(":", 2)
+    data = movies[cat][story]
+    kb = types.InlineKeyboardMarkup(row_width=5)
+    for ep in data["episodes"]:
+        kb.insert(types.InlineKeyboardButton(ep, callback_data=f"ep:{cat}:{story}:{ep}"))
+    kb.add(types.InlineKeyboardButton("⬅️ Back", callback_data=f"cat:{cat}"))
+    await bot.send_photo(call.message.chat.id, data["poster"], caption=story, reply_markup=kb)
+
+@dp.callback_query_handler(lambda c: c.data.startswith("ep:"))
 async def open_episode(call: types.CallbackQuery):
-    user_id = call.from_user.id
-    _, movie, ep = call.data.split("|")
-    ep = int(ep)
+    _, cat, story, ep = call.data.split(":", 3)
+    link = movies[cat][story]["episodes"][ep]
 
-    if not await is_channel_member(user_id):
-        await call.message.answer(
-            f"🚫 Channel member မဟုတ်ပါ\n\n👉 https://t.me/{CHANNEL_USERNAME}"
-        )
-        return
+    conn = sqlite3.connect(STATS_DB)
+    cur = conn.cursor()
+    cur.execute("INSERT INTO views VALUES (?,?,?,?,?)",
+                (call.from_user.id, cat, story, ep, datetime.now().date().isoformat()))
+    conn.commit()
+    conn.close()
 
-    data = load_json()
-    link = data[movie]["episodes"].get(str(ep))
-    if not link:
-        await call.answer("Episode မရှိပါ", show_alert=True)
-        return
+    kb = types.InlineKeyboardMarkup()
+    kb.add(types.InlineKeyboardButton("▶️ Watch", url=link))
+    kb.add(types.InlineKeyboardButton("⬅️ Back", callback_data=f"story:{cat}:{story}"))
+    await call.message.answer(f"{story} - {ep}", reply_markup=kb)
 
-    log_view(user_id, movie, ep)
-
-    await call.message.answer(
-        f"▶️ Episode ({ep}) ကို Channel ထဲမှာကြည့်ပါ👇\n{link}"
-    )
-
-# ---------- ADMIN : ADD MOVIE ----------
+# ================= ADMIN =================
 @dp.message_handler(commands=["admin"])
-async def admin_panel(msg: types.Message):
-    if msg.from_user.id not in ADMINS:
+async def admin(msg: types.Message):
+    if msg.from_user.id not in ADMIN_IDS:
         return
-    kb = ReplyKeyboardMarkup(resize_keyboard=True)
-    kb.add("➕ ဇတ်လမ်းအသစ်ထည့်မည်", "📊 Stats")
-    await msg.answer("Admin Panel", reply_markup=kb)
+    kb = types.InlineKeyboardMarkup(row_width=2)
+    for k, v in CATEGORIES.items():
+        kb.insert(types.InlineKeyboardButton(v, callback_data=f"addcat:{k}"))
+    await msg.answer("🛠 Category ရွေးပါ", reply_markup=kb)
 
-@dp.message_handler(lambda m: m.text == "➕ ဇတ်လမ်းအသစ်ထည့်မည်")
-async def add_movie_start(msg: types.Message):
-    await msg.answer("📸 Poster ပို့ပါ")
-    await AddMovie.poster.set()
+@dp.callback_query_handler(lambda c: c.data.startswith("addcat:"))
+async def add_cat(call: types.CallbackQuery, state: FSMContext):
+    cat = call.data.split(":")[1]
+    await state.update_data(category=cat, eps={})
+    await call.message.answer("🖼 Poster ပို့ပါ")
+    await AddStory.poster.set()
 
-@dp.message_handler(content_types=types.ContentType.PHOTO, state=AddMovie.poster)
-async def add_movie_poster(msg: types.Message, state: FSMContext):
+@dp.message_handler(content_types=types.ContentType.PHOTO, state=AddStory.poster)
+async def add_poster(msg: types.Message, state: FSMContext):
     await state.update_data(poster=msg.photo[-1].file_id)
-    await msg.answer("📝 ဇတ်လမ်းနာမည် ပို့ပါ")
-    await AddMovie.name.set()
+    await msg.answer("📖 ဇတ်လမ်းနာမည် ပို့ပါ")
+    await AddStory.name.set()
 
-@dp.message_handler(state=AddMovie.name)
-async def add_movie_name(msg: types.Message, state: FSMContext):
-    await state.update_data(name=msg.text)
-    await state.update_data(episodes={})
-    await msg.answer("🔗 Episode (1) link ပို့ပါ")
-    await AddMovie.episode.set()
+@dp.message_handler(state=AddStory.name)
+async def add_name(msg: types.Message, state: FSMContext):
+    await state.update_data(name=msg.text, ep_i=1)
+    await msg.answer("🔗 Episode 1 link ပို့ပါ")
+    await AddStory.episode.set()
 
-@dp.message_handler(state=AddMovie.episode)
-async def add_movie_episode(msg: types.Message, state: FSMContext):
+@dp.message_handler(state=AddStory.episode)
+async def add_eps(msg: types.Message, state: FSMContext):
     data = await state.get_data()
-    episodes = data["episodes"]
-    ep_no = len(episodes) + 1
-    episodes[str(ep_no)] = msg.text
-    await state.update_data(episodes=episodes)
-    await msg.answer(f"Episode ({ep_no+1}) link ပို့ပါ /done")
+    i = data["ep_i"]
+    data["eps"][f"အပိုင်း({i})"] = msg.text
+    i += 1
+    if i > 10:
+        cat = data["category"]
+        movies.setdefault(cat, {})
+        movies[cat][data["name"]] = {
+            "poster": data["poster"],
+            "episodes": data["eps"]
+        }
+        save_movies()
+        await msg.answer("✅ ဇတ်လမ်းသိမ်းပြီးပါပြီ")
+        await state.finish()
+    else:
+        await state.update_data(ep_i=i)
+        await msg.answer(f"🔗 Episode {i} link ပို့ပါ")
 
-@dp.message_handler(commands=["done"], state=AddMovie.episode)
-async def finish_movie(msg: types.Message, state: FSMContext):
-    data = await state.get_data()
-    db = load_json()
-    db[data["name"]] = {
-        "poster": data["poster"],
-        "episodes": data["episodes"]
-    }
-    save_json(db)
-    await state.finish()
-    await msg.answer("✅ ဇတ်လမ်းသိမ်းပြီးပါ")
-
-# ---------- STATS ----------
-@dp.message_handler(lambda m: m.text == "📊 Stats")
-async def stats(msg: types.Message):
-    if msg.from_user.id not in ADMINS:
+# ================= STATS =================
+@dp.message_handler(commands=["stats_day"])
+async def stats_day(msg: types.Message):
+    if msg.from_user.id not in ADMIN_IDS:
         return
-    cur.execute("SELECT movie, COUNT(*) FROM views GROUP BY movie")
+    conn = sqlite3.connect(STATS_DB)
+    cur = conn.cursor()
+    today = datetime.now().date().isoformat()
+    cur.execute("SELECT COUNT(*) FROM views WHERE date=?", (today,))
+    c = cur.fetchone()[0]
+    conn.close()
+    await msg.answer(f"📊 Today Views: {c}")
+
+@dp.message_handler(commands=["stats_week"])
+async def stats_week(msg: types.Message):
+    if msg.from_user.id not in ADMIN_IDS:
+        return
+    conn = sqlite3.connect(STATS_DB)
+    cur = conn.cursor()
+    d = (datetime.now() - timedelta(days=7)).date().isoformat()
+    cur.execute("SELECT COUNT(*) FROM views WHERE date>=?", (d,))
+    c = cur.fetchone()[0]
+    conn.close()
+    await msg.answer(f"📊 Weekly Views: {c}")
+
+@dp.message_handler(commands=["top"])
+async def top(msg: types.Message):
+    if msg.from_user.id not in ADMIN_IDS:
+        return
+    conn = sqlite3.connect(STATS_DB)
+    cur = conn.cursor()
+    cur.execute("SELECT story, COUNT(*) c FROM views GROUP BY story ORDER BY c DESC LIMIT 5")
     rows = cur.fetchall()
-    text = "📊 View Stats\n\n"
-    for r in rows:
-        text += f"{r[0]} : {r[1]} views\n"
+    conn.close()
+    text = "\n".join([f"{r[0]} - {r[1]}" for r in rows]) or "No data"
     await msg.answer(text)
 
-# ================== END ADDON ==================
+# ================= RUN =================
+if __name__ == "__main__":
+    executor.start_polling(dp, skip_updates=True)
