@@ -4,7 +4,7 @@ import sqlite3
 import os
 import uuid
 from datetime import datetime, timedelta
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -14,13 +14,12 @@ from telegram.ext import (
     ConversationHandler,
     filters,
 )
-from collections import Counter
 
 # -----------------------------------------------------------------------------
-# CONFIGURATION (ဒီနေရာမှာ ပြင်ပါ)
+# CONFIGURATION (မိတ်ဆွေ၏ Data များ ထည့်သွင်းပြီးပါပြီ)
 # -----------------------------------------------------------------------------
-TOKEN = 'YOUR_TELEGRAM_BOT_TOKEN_HERE'  # BotFather ဆီက Token ထည့်ပါ
-ADMIN_ID = 123456789                    # admin ရဲ့ User ID (Integer) ကိုထည့်ပါ
+TOKEN = '8210400472:AAGsYRGnoyVCJH1gBw32mF2QpFZ84it-Ick' 
+ADMIN_ID = 8466996343 
 
 # Data Files
 DATA_FILE = 'movies_data.json'
@@ -34,13 +33,19 @@ DB_FILE = 'bot_stats.db'
     SENDING_EPISODES,
 ) = range(4)
 
-# Categories (10 Types)
+# Categories (မြန်မာလို ၁၀ မျိုး)
 CATEGORIES = [
-    "1️⃣ Action 💥", "2️⃣ Romance 💖", "3️⃣ Comedy 😂", "4️⃣ Horror 👻",
-    "5️⃣ Sci-Fi 👽", "6️⃣ Drama 🎭", "7️⃣ Thriller 🔪", "8️⃣ Animation 🎬",
-    "9️⃣ Documentary 🌍", "🔟 Series 📺"
+    "1️⃣ အက်ရှင် (Action) 💥", 
+    "2️⃣ အချစ်ဇာတ်လမ်း (Romance) 💖", 
+    "3️⃣ ဟာသ (Comedy) 😂", 
+    "4️⃣ သရဲ/ထိတ်လန့် (Horror) 👻",
+    "5️⃣ သိပ္ပံနှင့်အာကာသ (Sci-Fi) 👽", 
+    "6️⃣ ဒရာမာ (Drama) 🎭", 
+    "7️⃣ သည်းထိတ်ရင်ဖို (Thriller) 🔪", 
+    "8️⃣ ကာတွန်း (Animation) 🎬",
+    "9️⃣ မှတ်တမ်းတင် (Documentary) 🌍", 
+    "🔟 ဇာတ်လမ်းတွဲများ (Series) 📺"
 ]
-
 # Logging Setup
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -57,7 +62,6 @@ def load_data():
         return {cat: [] for cat in CATEGORIES}
     with open(DATA_FILE, 'r', encoding='utf-8') as f:
         data = json.load(f)
-        # Ensure all categories exist
         for cat in CATEGORIES:
             if cat not in data:
                 data[cat] = []
@@ -121,7 +125,7 @@ async def receive_poster(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def receive_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
     name = update.message.text
     context.user_data['new_movie']['name'] = name
-    context.user_data['new_movie']['id'] = str(uuid.uuid4())[:8] # Short ID
+    context.user_data['new_movie']['id'] = str(uuid.uuid4())[:8] 
     
     await update.message.reply_text(
         f"✅ နာမည်: {name}\n\n🔗 **Episode 1 Link** ကို ပို့ပေးပါ။\n(နောက်အပိုင်းများကို တစ်ခုချင်းစီ ဆက်တိုက်ပို့နိုင်ပါသည်။ ပြီးရင် /done နှိပ်ပါ)"
@@ -130,7 +134,6 @@ async def receive_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def receive_episodes(update: Update, context: ContextTypes.DEFAULT_TYPE):
     link = update.message.text
-    # Simple check if text looks like a link or file ID
     ep_count = len(context.user_data['new_movie']['episodes']) + 1
     context.user_data['new_movie']['episodes'].append(link)
     
@@ -145,7 +148,6 @@ async def finish_add(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Error ဖြစ်သွားသည်။")
         return ConversationHandler.END
     
-    # Save to JSON
     all_data = load_data()
     cat = movie_data['category']
     
@@ -175,7 +177,7 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def check_admin(func):
     async def wrapper(update, context, *args, **kwargs):
         if update.effective_user.id != ADMIN_ID:
-            return # Ignore non-admins
+            return 
         return await func(update, context, *args, **kwargs)
     return wrapper
 
@@ -203,7 +205,6 @@ async def stats_week(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def stats_top(update: Update, context: ContextTypes.DEFAULT_TYPE):
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
-    # Count clicks on stories
     c.execute("SELECT details, COUNT(*) as cnt FROM stats WHERE action='view_story' GROUP BY details ORDER BY cnt DESC LIMIT 10")
     rows = c.fetchall()
     conn.close()
@@ -227,12 +228,18 @@ async def history_all(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 @check_admin
 async def export_data(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_document(document=open(DATA_FILE, 'rb'), caption="📂 Movies Data JSON")
-    await update.message.reply_document(document=open(DB_FILE, 'rb'), caption="📊 Stats Database")
+    if os.path.exists(DATA_FILE):
+        await update.message.reply_document(document=open(DATA_FILE, 'rb'), caption="📂 Movies Data JSON")
+    else:
+        await update.message.reply_text("📂 Movies Data မရှိသေးပါ။")
+        
+    if os.path.exists(DB_FILE):
+        await update.message.reply_document(document=open(DB_FILE, 'rb'), caption="📊 Stats Database")
+    else:
+         await update.message.reply_text("📊 Database မရှိသေးပါ။")
 
 @check_admin
 async def settings_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # Show categories to edit
     keyboard = [[InlineKeyboardButton(cat, callback_data=f"set_cat|{cat}")] for cat in CATEGORIES]
     keyboard.append([InlineKeyboardButton("❌ Close", callback_data="close_setting")])
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -247,7 +254,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     log_stat(user.id, "start")
     
     keyboard = []
-    # Create 2 columns for categories
     row = []
     for cat in CATEGORIES:
         row.append(InlineKeyboardButton(cat, callback_data=f"view_cat|{cat}"))
@@ -272,7 +278,6 @@ async def handle_navigation(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     all_data = load_data()
 
-    # --- VIEW CATEGORY ---
     if action == "view_cat":
         cat_name = data[1]
         movies = all_data.get(cat_name, [])
@@ -284,14 +289,12 @@ async def handle_navigation(update: Update, context: ContextTypes.DEFAULT_TYPE):
         keyboard.append([InlineKeyboardButton("⬅️ Back", callback_data="back_home")])
         reply_markup = InlineKeyboardMarkup(keyboard)
         
-        # Text based list instead of poster for category view to save bandwidth
         await query.edit_message_text(
             f"📂 **{cat_name}**\nဇာတ်ကားရွေးချယ်ပါ:", 
             parse_mode='Markdown', 
             reply_markup=reply_markup
         )
 
-    # --- VIEW STORY (Shows Poster + Episodes) ---
     elif action == "view_story":
         cat_name = data[1]
         movie_id = data[2]
@@ -299,8 +302,6 @@ async def handle_navigation(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         if movie:
             log_stat(user_id, "view_story", movie['name'])
-            
-            # Episode Grid (5 per row)
             ep_keyboard = []
             row = []
             for i, link in enumerate(movie['episodes']):
@@ -309,10 +310,8 @@ async def handle_navigation(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     ep_keyboard.append(row)
                     row = []
             if row: ep_keyboard.append(row)
-            
             ep_keyboard.append([InlineKeyboardButton("⬅️ Back", callback_data=f"view_cat|{cat_name}")])
             
-            # Delete previous text message to send new photo message
             await query.delete_message()
             await context.bot.send_photo(
                 chat_id=update.effective_chat.id,
@@ -320,23 +319,19 @@ async def handle_navigation(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 caption=f"🎬 **{movie['name']}**\n\nကြည့်ရှုလိုသော အပိုင်းကို ရွေးပါ:",
                 parse_mode='Markdown',
                 reply_markup=InlineKeyboardMarkup(ep_keyboard),
-                protect_content=True # Prevent downloading poster
+                protect_content=True 
             )
 
-    # --- GET EPISODE LINK ---
     elif action == "get_ep":
         cat_name = data[1]
         movie_id = data[2]
         ep_index = int(data[3])
-        
         movie = next((m for m in all_data[cat_name] if m['id'] == movie_id), None)
         if movie:
             link = movie['episodes'][ep_index]
             log_stat(user_id, "click_ep", f"{movie['name']} - Ep {ep_index+1}")
-            
-            # Check if link is a URL or a Telegram Message Link
             keyboard = [[InlineKeyboardButton("▶️ Watch Now / Download", url=link)]]
-            keyboard.append([InlineKeyboardButton("⬅️ Back", callback_data=f"view_story_text|{cat_name}|{movie['id']}")]) # Special back to avoid resending photo
+            keyboard.append([InlineKeyboardButton("⬅️ Back", callback_data=f"view_story_text|{cat_name}|{movie['id']}")]) 
             
             await query.edit_message_caption(
                 caption=f"🎬 **{movie['name']}** - Episode {ep_index+1}\n\n👇 အောက်ပါခလုတ်ကို နှိပ်ပြီး ကြည့်ရှုပါ။",
@@ -344,17 +339,13 @@ async def handle_navigation(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 reply_markup=InlineKeyboardMarkup(keyboard)
             )
 
-    # --- BACK TO HOME ---
     elif action == "back_home":
         await start(update, context)
 
-    # --- SPECIAL BACK HANDLER (From Episode to Story) ---
     elif action == "view_story_text":
-        # Just restore the episode grid caption
         cat_name = data[1]
         movie_id = data[2]
         movie = next((m for m in all_data[cat_name] if m['id'] == movie_id), None)
-        
         ep_keyboard = []
         row = []
         for i, link in enumerate(movie['episodes']):
@@ -371,40 +362,29 @@ async def handle_navigation(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=InlineKeyboardMarkup(ep_keyboard)
         )
 
-    # -------------------------------------------------------------------------
-    # SETTINGS CALLBACKS (DELETE/EDIT)
-    # -------------------------------------------------------------------------
     elif action == "set_cat":
         if user_id != ADMIN_ID: return
         cat_name = data[1]
         movies = all_data.get(cat_name, [])
-        
         keyboard = []
         for movie in movies:
             keyboard.append([InlineKeyboardButton(f"🗑️ {movie['name']}", callback_data=f"del_confirm|{cat_name}|{movie['id']}")])
-        
         keyboard.append([InlineKeyboardButton("⬅️ Back", callback_data="back_setting")])
         reply_markup = InlineKeyboardMarkup(keyboard)
-        
         await query.edit_message_text(f"⚙️ **{cat_name}**\nဖျက်လိုသော ဇာတ်ကားကို နှိပ်ပါ:", parse_mode='Markdown', reply_markup=reply_markup)
 
     elif action == "del_confirm":
         cat_name = data[1]
         movie_id = data[2]
-        
-        # Delete Logic
         movies = all_data.get(cat_name, [])
         new_movies = [m for m in movies if m['id'] != movie_id]
         all_data[cat_name] = new_movies
         save_data(all_data)
-        
         await query.answer("🗑️ ဖျက်ပြီးပါပြီ!", show_alert=True)
-        # Refresh list
         keyboard = []
         for movie in new_movies:
             keyboard.append([InlineKeyboardButton(f"🗑️ {movie['name']}", callback_data=f"del_confirm|{cat_name}|{movie['id']}")])
         keyboard.append([InlineKeyboardButton("⬅️ Back", callback_data="back_setting")])
-        
         await query.edit_message_text(f"⚙️ **{cat_name}**\nUpdate ဖြစ်ပြီးပါပြီ။", parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
 
     elif action == "back_setting":
@@ -418,13 +398,9 @@ async def handle_navigation(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # -----------------------------------------------------------------------------
 
 def main():
-    # Initialize DB
     init_db()
-    
-    # Create App
     application = Application.builder().token(TOKEN).build()
 
-    # --- ADMIN CONVERSATION (Add Movie) ---
     conv_handler = ConversationHandler(
         entry_points=[CommandHandler('admin', admin_start)],
         states={
@@ -440,19 +416,15 @@ def main():
     )
     application.add_handler(conv_handler)
 
-    # --- ADMIN COMMANDS ---
     application.add_handler(CommandHandler("stats_day", stats_day))
     application.add_handler(CommandHandler("stats_week", stats_week))
     application.add_handler(CommandHandler("top", stats_top))
     application.add_handler(CommandHandler("history_all", history_all))
     application.add_handler(CommandHandler("export", export_data))
     application.add_handler(CommandHandler("setting", settings_command))
-
-    # --- MEMBER COMMANDS ---
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CallbackQueryHandler(handle_navigation))
 
-    # Run Bot
     print("🤖 Bot is running...")
     application.run_polling()
 
