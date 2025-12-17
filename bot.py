@@ -77,7 +77,7 @@ async def receive_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def receive_episodes(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['new_movie']['episodes'].append(update.message.text)
-    await update.message.reply_text(f"✅ Ep {len(context.user_data['new_movie']['episodes'])} ရပြီ။ ထပ်ပို့ပါ (သို့မဟုတ်) /done")
+    await update.message.reply_text(f"✅ အပိုင်း {len(context.user_data['new_movie']['episodes'])} ရပြီ။ ထပ်ပို့ပါ (သို့မဟုတ်) /done")
     return SENDING_EPISODES
 
 async def finish_add(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -85,12 +85,12 @@ async def finish_add(update: Update, context: ContextTypes.DEFAULT_TYPE):
     all_data = load_data()
     all_data[movie['category']].append(movie)
     save_data(all_data)
-    await update.message.reply_text(f"🎉 {movie['name']} ကို သိမ်းဆည်းပြီးပါပြီ။")
+    await update.message.reply_text(f"🎉 {movie['name']} သိမ်းဆည်းပြီးပါပြီ။")
     context.user_data.clear()
     return ConversationHandler.END
 
 def main():
-    # ဒီနေရာမှာ 'use_context' လုံးဝမပါရပါဘူး (v20 standard)
+    # ဒီကုဒ်မှာ Updater ပုံစံကို လုံးဝမသုံးတော့ဘဲ Application Builder ကို သုံးထားပါတယ်
     application = Application.builder().token(TOKEN).build()
     
     conv_handler = ConversationHandler(
@@ -107,7 +107,7 @@ def main():
     application.add_handler(conv_handler)
     application.add_handler(CommandHandler("start", start))
     
-    print("Bot is starting...")
+    print("Bot is successfully running...")
     application.run_polling()
 
 if __name__ == '__main__':
