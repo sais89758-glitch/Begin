@@ -20,6 +20,7 @@ ADMIN_ID = 8466996343
 DATA_FILE = 'movies_data.json'
 (CHOOSING_CATEGORY, SENDING_POSTER, SENDING_NAME, SENDING_EPISODES) = range(4)
 
+# မိတ်ဆွေတောင်းဆိုထားသော "နန်းတွင်း" နှင့် "အိမ်ထောင်ရေး" ကို ပေါင်းထည့်ထားပါသည်
 CATEGORIES = [
     "1️⃣ အက်ရှင် (Action) 💥", "2️⃣ အချစ်ဇာတ်လမ်း (Romance) 💖", 
     "3️⃣ ဟာသ (Comedy) 😂", "4️⃣ သရဲ/ထိတ်လန့် (Horror) 👻",
@@ -30,9 +31,13 @@ CATEGORIES = [
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 
+# ဒေတာဖိုင်ကို အလိုအလျောက် စစ်ဆေးဆောက်လုပ်ခြင်း
 def load_data():
     if not os.path.exists(DATA_FILE):
-        return {cat: [] for cat in CATEGORIES}
+        initial_data = {cat: [] for cat in CATEGORIES}
+        with open(DATA_FILE, 'w', encoding='utf-8') as f:
+            json.dump(initial_data, f, ensure_ascii=False, indent=4)
+        return initial_data
     try:
         with open(DATA_FILE, 'r', encoding='utf-8') as f:
             return json.load(f)
@@ -45,14 +50,14 @@ def save_data(data):
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [[InlineKeyboardButton(cat, callback_data=f"view_cat|{cat}")] for cat in CATEGORIES]
-    await update.message.reply_text("👋 မင်္ဂလာပါ! အမျိုးအစားရွေးချယ်ပါ။", reply_markup=InlineKeyboardMarkup(keyboard))
+    await update.message.reply_text("👋 မင်္ဂလာပါ! ရုပ်ရှင်အမျိုးအစားကို ရွေးချယ်ပါ။", reply_markup=InlineKeyboardMarkup(keyboard))
 
 async def admin_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID:
         await update.message.reply_text("⛔ သင် Admin မဟုတ်ပါ။")
         return ConversationHandler.END
     keyboard = [[InlineKeyboardButton(cat, callback_data=f"admin_cat|{cat}")] for cat in CATEGORIES]
-    await update.message.reply_text("🛠 Admin Mode: Category ရွေးပါ", reply_markup=InlineKeyboardMarkup(keyboard))
+    await update.message.reply_text("🛠 **Admin Mode**\nဇာတ်ကားထည့်ရန် Category ရွေးပါ:", reply_markup=InlineKeyboardMarkup(keyboard))
     return CHOOSING_CATEGORY
 
 async def admin_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -60,24 +65,24 @@ async def admin_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     cat = query.data.split("|")[1]
     context.user_data['new_movie'] = {'category': cat, 'episodes': []}
-    await query.edit_message_text(f"📂 {cat}\n\n🖼️ Poster ပုံ ပို့ပေးပါ။")
+    await query.edit_message_text(f"📂 {cat}\n\n🖼️ **Poster ပုံ** ပို့ပေးပါ။")
     return SENDING_POSTER
 
 async def receive_poster(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message.photo: return SENDING_POSTER
     context.user_data['new_movie']['poster'] = update.message.photo[-1].file_id
-    await update.message.reply_text("📝 ဇာတ်လမ်းနာမည် ပို့ပါ။")
+    await update.message.reply_text("📝 **ဇာတ်လမ်းနာမည်** ရေးပို့ပါ။")
     return SENDING_NAME
 
 async def receive_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['new_movie']['name'] = update.message.text
     context.user_data['new_movie']['id'] = str(uuid.uuid4())[:8]
-    await update.message.reply_text("🔗 Link ပို့ပါ။ (ပြီးရင် /done နှိပ်ပါ)")
+    await update.message.reply_text("🔗 **Episode Link** ပို့ပါ။ (ပြီးလျှင် /done နှိပ်ပါ)")
     return SENDING_EPISODES
 
 async def receive_episodes(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['new_movie']['episodes'].append(update.message.text)
-    await update.message.reply_text(f"✅ အပိုင်း {len(context.user_data['new_movie']['episodes'])} ရပြီ။ ထပ်ပို့ပါ (သို့မဟုတ်) /done")
+    await update.message.reply_text(f"✅ အပိုင်း {len(context.user_data['new_movie']['episodes'])} ရပြီ။ ထပ်ပို့ပါ သို့မဟုတ် /done")
     return SENDING_EPISODES
 
 async def finish_add(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -85,12 +90,12 @@ async def finish_add(update: Update, context: ContextTypes.DEFAULT_TYPE):
     all_data = load_data()
     all_data[movie['category']].append(movie)
     save_data(all_data)
-    await update.message.reply_text(f"🎉 {movie['name']} သိမ်းဆည်းပြီးပါပြီ။")
+    await update.message.reply_text(f"🎉 **{movie['name']}** သိမ်းဆည်းပြီးပါပြီ။")
     context.user_data.clear()
     return ConversationHandler.END
 
 def main():
-    # ဒီကုဒ်မှာ Updater ပုံစံကို လုံးဝမသုံးတော့ဘဲ Application Builder ကို သုံးထားပါတယ်
+    # v20+ standard
     application = Application.builder().token(TOKEN).build()
     
     conv_handler = ConversationHandler(
