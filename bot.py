@@ -40,5 +40,9 @@ def main():
 
     app.run_polling()
 
-if __name__ == "__main__":
-    main()
+# အောက်က code အပိုင်းကို bot.py ရဲ့ အောက်ဆုံးမှာ ထည့်ပေးထားရပါမယ်
+if __name__ == '__main__':
+    application = ApplicationBuilder().token(BOT_TOKEN).build()
+    application.add_handler(CommandHandler('start', start))
+    application.add_handler(CallbackQueryHandler(button_handler))
+    application.run_polling()
