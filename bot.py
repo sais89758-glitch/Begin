@@ -1,7 +1,8 @@
+import os
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, ContextTypes
-import os
 
+# Railway Variables ထဲက BOT_TOKEN ကို ဖတ်ယူခြင်း
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -11,6 +12,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
 
+    # Message ကနေလာတာလား Callback ကနေလာတာလား စစ်ဆေးခြင်း
     if update.message:
         await update.message.reply_text(
             "🎬 Movie Bot မှ ကြိုဆိုပါတယ်!\n\nCategory ကိုရွေးပါ 👇",
@@ -22,7 +24,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=reply_markup
         )
 
-# Button handler
+# ခလုတ်များနှိပ်လိုက်လျှင် အလုပ်လုပ်မည့်အပိုင်း
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -33,16 +35,21 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("📺 Series (မကြာမီ ထည့်မယ်)")
 
 def main():
-    app = ApplicationBuilder().token(BOT_TOKEN).build()
+    # Token ရှိမရှိ အရင်စစ်ဆေးခြင်း
+    if not BOT_TOKEN:
+        print("Error: BOT_TOKEN is missing! Please check Railway Variables.")
+        return
 
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CallbackQueryHandler(button_handler))
-
-    app.run_polling()
-
-# အောက်က code အပိုင်းကို bot.py ရဲ့ အောက်ဆုံးမှာ ထည့်ပေးထားရပါမယ်
-if __name__ == '__main__':
+    # Application တည်ဆောက်ခြင်း
     application = ApplicationBuilder().token(BOT_TOKEN).build()
-    application.add_handler(CommandHandler('start', start))
+
+    # Command နှင့် Handler များ ထည့်သွင်းခြင်း
+    application.add_handler(CommandHandler("start", start))
     application.add_handler(CallbackQueryHandler(button_handler))
+
+    # Bot ကို စတင် Run ခြင်း
+    print("Bot is starting...")
     application.run_polling()
+
+if __name__ == '__main__':
+    main()
