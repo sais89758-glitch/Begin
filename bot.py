@@ -1,212 +1,353 @@
+# bot.py
 import os
+import json
 import sqlite3
-import csv
-from datetime import datetime, timedelta
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from datetime import datetime
+from typing import Dict, Any, List
+
+from telegram import (
+    Update,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    InputMediaPhoto,
+)
 from telegram.ext import (
-    ApplicationBuilder, CommandHandler, CallbackQueryHandler, 
-    ContextTypes, MessageHandler, filters, ConversationHandler
+    ApplicationBuilder,
+    CommandHandler,
+    CallbackQueryHandler,
+    MessageHandler,
+    ContextTypes,
+    filters,
 )
 
-# --- CONFIGURATION ---
-BOT_TOKEN = os.environ.get("BOT_TOKEN", "8493660753:AAGW63blwBFI6xQVTh_73gHiuOrpvpB9ajA")
-ADMIN_IDS = [8466996343]  # သင်ပေးထားတဲ့ Admin ID
+# ==============================
+# အခြေခံ Setting များ
+# ==============================
 
-# Conversation States
-ADD_CAT, ADD_POSTER, ADD_NAME, ADD_EPISODES = range(4)
-EDIT_SELECT, EDIT_ACTION = range(4, 6)
+# Telegram Bot Token (Environment Variable မှ ယူမည်)
+BOT_TOKEN = os.environ.get("BOT_TOKEN")
 
-# --- DATABASE SETUP ---
+# Admin Telegram User ID များ
+ADMIN_IDS = [8466996343]
+
+# Data သိမ်းဆည်းမည့် ဖိုင်များ
+DATA_FILE = "data.json"
+DB_FILE = "stats.db"
+
+# ==============================
+# Data Storage Function များ
+# ==============================
+
+def load_data() -> Dict[str, Any]:
+    """Movie / Series Data ကို JSON ဖိုင်မှ ဖတ်ယူ"""
+    if not os.path.exists(DATA_FILE):
+        with open(DATA_FILE, "w", encoding="utf-8") as f:
+            json.dump({"categories": []}, f, ensure_ascii=False, indent=2)
+
+    with open(DATA_FILE, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+def save_data(data: Dict[str, Any]):
+    """Movie / Series Data ကို JSON ဖိုင်ထဲသို့ သိမ်းဆည်း"""
+    with open(DATA_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+
+
 def init_db():
-    conn = sqlite3.connect('movie_bot.db')
-    c = conn.cursor()
-    c.execute('''CREATE TABLE IF NOT EXISTS movies 
-                 (id INTEGER PRIMARY KEY, category TEXT, poster TEXT, name TEXT)''')
-    c.execute('''CREATE TABLE IF NOT EXISTS episodes 
-                 (id INTEGER PRIMARY KEY, movie_id INTEGER, ep_num INTEGER, link TEXT)''')
-    c.execute('''CREATE TABLE IF NOT EXISTS stats 
-                 (user_id INTEGER, movie_id INTEGER, timestamp DATETIME)''')
+    """အသုံးပြုမှု စာရင်းသွင်းရန် SQLite Database ဖန်တီး"""
+    conn = sqlite3.connect(DB_FILE)
+    cur = conn.cursor()
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS clicks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER,
+            item_id TEXT,
+            ts TEXT
+        )
+        """
+    )
     conn.commit()
     conn.close()
 
-CATEGORIES = {
-    "1": "1️⃣ အက်ရှင် (Action) 💥", "2": "2️⃣ အချစ်ဇာတ်လမ်း (Romance) 💖",
-    "3": "3️⃣ ဟာသ (Comedy) 😂", "4": "4️⃣ သရဲ/ထိတ်လန့် (Horror) 👻",
-    "5": "5️⃣ သိပ္ပံနှင့်အာကာသ (Sci-Fi) 👽", "6": "6️⃣ ဒရာမာ (Drama) 🎭",
-    "7": "7️⃣ သည်းထိတ်ရင်ဖို (Thriller) 🔪", "8": "8️⃣ ကာတွန်း (Animation) 🎬",
-    "9": "9️⃣ နန်းတွင်းဇာတ်လမ်း 🏯", "10": "🔟 အိမ်ထောင်ရေးဇာတ်လမ်း 🏠"
-}
 
-# --- MEMBER FUNCTIONS ---
+def log_click(user_id: int, item_id: str):
+    """User Click ကို Database ထဲသို့ မှတ်တမ်းတင်"""
+    conn = sqlite3.connect(DB_FILE)
+    cur = conn.cursor()
+    cur.execute(
+        "INSERT INTO clicks(user_id, item_id, ts) VALUES (?, ?, ?)",
+        (user_id, item_id, datetime.utcnow().isoformat()),
+    )
+    conn.commit()
+    conn.close()
+
+# ==============================
+# Helper Function များ
+# ==============================
+
+def is_admin(user_id: int) -> bool:
+    """User သည် Admin ဖြစ်မဖြစ် စစ်ဆေး"""
+    return user_id in ADMIN_IDS
+
+
+def build_keyboard(rows: List[List[InlineKeyboardButton]]) -> InlineKeyboardMarkup:
+    """Inline Keyboard တည်ဆောက်"""
+    return InlineKeyboardMarkup(rows)
+
+
+def back_button(target: str):
+    """နောက်ပြန်သွားရန် Button"""
+    return InlineKeyboardButton("⬅️ နောက်ပြန်", callback_data=f"BACK:{target}")
+
+# ==============================
+# Keyboard UI တည်ဆောက်ခြင်း
+# ==============================
+
+def categories_keyboard(data):
+    """Category Button များ"""
+    rows = []
+    for cat in data["categories"][:10]:
+        rows.append(
+            [InlineKeyboardButton(cat["name"], callback_data=f"CAT:{cat['id']}")]
+        )
+    return build_keyboard(rows)
+
+
+def items_keyboard(category):
+    """Movie / Series Button များ"""
+    rows = []
+    for item in category.get("items", []):
+        rows.append(
+            [InlineKeyboardButton(item["title"], callback_data=f"ITEM:{item['id']}")]
+        )
+    rows.append([back_button("START")])
+    return build_keyboard(rows)
+
+
+def episodes_keyboard(item):
+    """Episode Button များ"""
+    rows = []
+    for ep in item.get("episodes", [])[:10]:
+        rows.append(
+            [InlineKeyboardButton(f"အပိုင်း {ep['ep']}", url=ep["link"])]
+        )
+    rows.append([back_button("CAT")])
+    return build_keyboard(rows)
+
+# ==============================
+# User Command များ
+# ==============================
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    keyboard = [[InlineKeyboardButton(name, callback_data=f"cat_{kid}")] for kid, name in CATEGORIES.items()]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    text = "🎬 Movie Bot မှ ကြိုဆိုပါတယ်!\n\nCategory ကိုရွေးပါ 👇"
-    
-    if update.message:
-        await update.message.reply_text(text, reply_markup=reply_markup)
-    else:
-        await update.callback_query.edit_message_text(text, reply_markup=reply_markup)
-
-async def show_movies(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    cat_id = query.data.split("_")[1]
-    cat_name = CATEGORIES[cat_id]
-    
-    conn = sqlite3.connect('movie_bot.db')
-    c = conn.cursor()
-    c.execute("SELECT id, name FROM movies WHERE category=?", (cat_name,))
-    movies = c.fetchall()
-    conn.close()
-
-    keyboard = [[InlineKeyboardButton(f"🎬 {m[1]}", callback_data=f"mov_{m[0]}")] for m in movies]
-    keyboard.append([InlineKeyboardButton("⬅️ Back", callback_data="back_home")])
-    
-    await query.edit_message_text(f"📂 {cat_name}\n\nဇာတ်လမ်းများ 👇", reply_markup=InlineKeyboardMarkup(keyboard))
-
-async def movie_detail(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    movie_id = query.data.split("_")[1]
-    
-    conn = sqlite3.connect('movie_bot.db')
-    c = conn.cursor()
-    c.execute("SELECT category, poster, name FROM movies WHERE id=?", (movie_id,))
-    movie = c.fetchone()
-    c.execute("SELECT ep_num FROM episodes WHERE movie_id=? ORDER BY ep_num", (movie_id,))
-    eps = c.fetchall()
-    
-    # Stats Logging
-    c.execute("INSERT INTO stats VALUES (?, ?, ?)", (query.from_user.id, movie_id, datetime.now()))
-    conn.commit()
-    conn.close()
-
-    keyboard = []
-    row = []
-    for ep in eps:
-        row.append(InlineKeyboardButton(f"Ep-{ep[0]}", callback_data=f"viewep_{movie_id}_{ep[0]}"))
-        if len(row) == 4:
-            keyboard.append(row)
-            row = []
-    if row: keyboard.append(row)
-    keyboard.append([InlineKeyboardButton("⬅️ Back", callback_data="back_home")])
-
-    await query.message.delete()
-    await query.message.reply_photo(
-        photo=movie[1],
-        caption=f"🎬 **Name:** {movie[2]}\n📂 **Category:** {movie[0]}\n\nအပိုင်းများကို ရွေးပါ 👇",
-        reply_markup=InlineKeyboardMarkup(keyboard)
+    """Bot စတင်အသုံးပြု"""
+    data = load_data()
+    await update.effective_chat.send_message(
+        "🎬 ရုပ်ရှင် / ဇာတ်လမ်း Bot မှ ကြိုဆိုပါတယ်\n\nအမျိုးအစား ရွေးပါ 👇",
+        reply_markup=categories_keyboard(data),
     )
 
-async def view_episode(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    _, mid, ep_num = query.data.split("_")
-    conn = sqlite3.connect('movie_bot.db')
-    c = conn.cursor()
-    c.execute("SELECT link FROM episodes WHERE movie_id=? AND ep_num=?", (mid, ep_num))
-    link = c.fetchone()[0]
-    conn.close()
-    await query.message.reply_text(f"📺 Episode {ep_num} Link:\n{link}")
-    await query.answer()
-
-# --- ADMIN: ADD MOVIE ---
 
 async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id not in ADMIN_IDS: return
-    keyboard = [[InlineKeyboardButton(v, callback_data=f"ac_{v}")] for v in CATEGORIES.values()]
-    await update.message.reply_text("➕ Category ကိုရွေးပါ:", reply_markup=InlineKeyboardMarkup(keyboard))
-    return ADD_CAT
+    """Admin Panel"""
+    if not is_admin(update.effective_user.id):
+        return
 
-async def add_cat_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    rows = [
+        [InlineKeyboardButton("➕ အသစ်ထည့်ရန်", callback_data="ADM:ADD")],
+        [InlineKeyboardButton("✏️ ပြင်ရန်", callback_data="ADM:EDIT")],
+        [InlineKeyboardButton("❌ ဖျက်ရန်", callback_data="ADM:DEL")],
+    ]
+    await update.effective_chat.send_message(
+        "🛠 Admin Panel",
+        reply_markup=build_keyboard(rows),
+    )
+
+# ==============================
+# Callback Button Handler
+# ==============================
+
+async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    context.user_data['cat'] = query.data.split("_")[1]
-    await query.edit_message_text("🖼️ Poster Link (URL) ကိုပို့ပါ:")
-    return ADD_POSTER
+    await query.answer()
 
-async def add_poster(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data['poster'] = update.message.text
-    await update.message.reply_text("📝 ဇာတ်လမ်းအမည် ပို့ပါ:")
-    return ADD_NAME
+    data = load_data()
+    cd = query.data
 
-async def add_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data['name'] = update.message.text
-    context.user_data['eps'] = []
-    await update.message.reply_text("🔗 Episode links ကို တစ်ခုချင်းပို့ပါ (ပြီးရင် /done နှိပ်ပါ):")
-    return ADD_EPISODES
+    if cd == "BACK:START":
+        await query.edit_message_text(
+            "အမျိုးအစား ရွေးပါ 👇",
+            reply_markup=categories_keyboard(data),
+        )
+        return
 
-async def add_ep_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data['eps'].append(update.message.text)
-    await update.message.reply_text(f"✅ Episode {len(context.user_data['eps'])} ရပါပြီ။ /done နှိပ်နိုင်ပါပြီ။")
-    return ADD_EPISODES
+    if cd.startswith("CAT:"):
+        cat_id = int(cd.split(":")[1])
+        category = next((c for c in data["categories"] if c["id"] == cat_id), None)
+        if not category:
+            return
+        await query.edit_message_text(
+            category["name"],
+            reply_markup=items_keyboard(category),
+        )
+        return
 
-async def done_save(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    d = context.user_data
-    conn = sqlite3.connect('movie_bot.db')
-    c = conn.cursor()
-    c.execute("INSERT INTO movies (category, poster, name) VALUES (?,?,?)", (d['cat'], d['poster'], d['name']))
-    mid = c.lastrowid
-    for i, link in enumerate(d['eps'], 1):
-        c.execute("INSERT INTO episodes (movie_id, ep_num, link) VALUES (?,?,?)", (mid, i, link))
-    conn.commit()
+    if cd.startswith("ITEM:"):
+        item_id = cd.split(":")[1]
+        for category in data["categories"]:
+            for item in category.get("items", []):
+                if item["id"] == item_id:
+                    log_click(query.from_user.id, item_id)
+                    if item.get("poster"):
+                        await query.message.edit_media(
+                            media=InputMediaPhoto(
+                                media=item["poster"],
+                                caption=item["title"],
+                            ),
+                            reply_markup=episodes_keyboard(item),
+                        )
+                    else:
+                        await query.edit_message_text(
+                            item["title"],
+                            reply_markup=episodes_keyboard(item),
+                        )
+                    return
+
+    if cd == "BACK:CAT":
+        await query.edit_message_text(
+            "အမျိုးအစား ရွေးပါ 👇",
+            reply_markup=categories_keyboard(data),
+        )
+        return
+
+    # ==========================
+    # Admin Function များ
+    # ==========================
+    if not is_admin(query.from_user.id):
+        return
+
+    if cd == "ADM:ADD":
+        context.user_data.clear()
+        context.user_data["stage"] = "ADD_CATEGORY"
+        await query.edit_message_text("အမျိုးအစား အမည် ထည့်ပါ (ဥပမာ - အက်ရှင် 🎬)")
+        return
+
+# ==============================
+# Admin Message Flow
+# ==============================
+
+async def admin_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_admin(update.effective_user.id):
+        return
+
+    user_data = context.user_data
+    data = load_data()
+
+    if user_data.get("stage") == "ADD_CATEGORY":
+        name = update.message.text.strip()
+        new_id = max([c["id"] for c in data["categories"]] + [0]) + 1
+        user_data["category"] = {"id": new_id, "name": name, "items": []}
+        user_data["stage"] = "ADD_TITLE"
+        await update.message.reply_text("ရုပ်ရှင် / ဇာတ်လမ်း အမည် ထည့်ပါ")
+        return
+
+    if user_data.get("stage") == "ADD_TITLE":
+        user_data["item"] = {
+            "id": f"item_{int(datetime.utcnow().timestamp())}",
+            "title": update.message.text.strip(),
+            "poster": "",
+            "episodes": [],
+        }
+        user_data["stage"] = "ADD_POSTER"
+        await update.message.reply_text("Poster ပုံ ပို့ပါ (မရှိရင် skip လို့ရေး)")
+        return
+
+    if user_data.get("stage") == "ADD_POSTER":
+        if update.message.photo:
+            user_data["item"]["poster"] = update.message.photo[-1].file_id
+        user_data["stage"] = "ADD_EP_COUNT"
+        await update.message.reply_text("အပိုင်း အရေအတွက် ထည့်ပါ (၁ မှ ၁၀ အထိ)")
+        return
+
+    if user_data.get("stage") == "ADD_EP_COUNT":
+        user_data["ep_total"] = int(update.message.text.strip())
+        user_data["ep_index"] = 1
+        user_data["stage"] = "ADD_EP_LINK"
+        await update.message.reply_text(
+            f"အပိုင်း {user_data['ep_index']} link ထည့်ပါ"
+        )
+        return
+
+    if user_data.get("stage") == "ADD_EP_LINK":
+        user_data["item"]["episodes"].append(
+            {
+                "ep": user_data["ep_index"],
+                "link": update.message.text.strip(),
+            }
+        )
+        user_data["ep_index"] += 1
+
+        if user_data["ep_index"] <= user_data["ep_total"]:
+            await update.message.reply_text(
+                f"အပိုင်း {user_data['ep_index']} link ထည့်ပါ"
+            )
+            return
+
+        user_data["category"]["items"].append(user_data["item"])
+        data["categories"].append(user_data["category"])
+        save_data(data)
+        user_data.clear()
+
+        await update.message.reply_text("✅ အောင်မြင်စွာ သိမ်းဆည်းပြီးပါပြီ")
+        return
+
+# ==============================
+# Statistics Command များ
+# ==============================
+
+async def stats_day(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_admin(update.effective_user.id):
+        return
+    conn = sqlite3.connect(DB_FILE)
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT COUNT(*) FROM clicks WHERE ts >= datetime('now','-1 day')"
+    )
+    count = cur.fetchone()[0]
     conn.close()
-    await update.message.reply_text(f"🎉 '{d['name']}' ထည့်သွင်းပြီးပါပြီ!")
-    return ConversationHandler.END
+    await update.message.reply_text(f"ဒီနေ့ အသုံးပြုမှု: {count}")
 
-# --- ADMIN: STATS & COMMANDS ---
 
-async def get_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id not in ADMIN_IDS: return
-    cmd = update.message.text
-    conn = sqlite3.connect('movie_bot.db')
-    c = conn.cursor()
-    
-    if "day" in cmd:
-        day = datetime.now().strftime('%Y-%m-%d')
-        c.execute("SELECT COUNT(*) FROM stats WHERE timestamp LIKE ?", (f"{day}%",))
-        await update.message.reply_text(f"📊 ယနေ့ကြည့်ရှုမှု: {c.fetchone()[0]} ကြိမ်")
-    elif "top" in cmd:
-        c.execute("SELECT m.name, COUNT(s.movie_id) as count FROM stats s JOIN movies m ON s.movie_id = m.id GROUP BY s.movie_id ORDER BY count DESC LIMIT 1")
-        res = c.fetchone()
-        await update.message.reply_text(f"🔝 အကြည့်အများဆုံး: {res[0]} ({res[1]} ကြိမ်)" if res else "ဒေတာမရှိသေးပါ။")
-    
+async def stats_week(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_admin(update.effective_user.id):
+        return
+    conn = sqlite3.connect(DB_FILE)
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT COUNT(*) FROM clicks WHERE ts >= datetime('now','-7 day')"
+    )
+    count = cur.fetchone()[0]
     conn.close()
+    await update.message.reply_text(f"ဒီအပတ် အသုံးပြုမှု: {count}")
 
-async def export_data(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id not in ADMIN_IDS: return
-    conn = sqlite3.connect('movie_bot.db')
-    c = conn.cursor()
-    c.execute("SELECT * FROM stats")
-    with open('history.csv', 'w', newline='', encoding='utf-8') as f:
-        writer = csv.writer(f)
-        writer.writerow(['User ID', 'Movie ID', 'Time'])
-        writer.writerows(c.fetchall())
-    conn.close()
-    await update.message.reply_document(document=open('history.csv', 'rb'))
+# ==============================
+# Main
+# ==============================
 
-# --- MAIN ---
-if __name__ == '__main__':
+def main():
     init_db()
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
-    add_conv = ConversationHandler(
-        entry_points=[CommandHandler('admin', admin_panel)],
-        states={
-            ADD_CAT: [CallbackQueryHandler(add_cat_cb, pattern="^ac_")],
-            ADD_POSTER: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_poster)],
-            ADD_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_name)],
-            ADD_EPISODES: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_ep_link)],
-        },
-        fallbacks=[CommandHandler('done', done_save)]
-    )
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("admin", admin_panel))
+    app.add_handler(CommandHandler("stats_day", stats_day))
+    app.add_handler(CommandHandler("stats_week", stats_week))
 
-    app.add_handler(add_conv)
-    app.add_handler(CommandHandler('start', start))
-    app.add_handler(CommandHandler(['stats_day', 'top'], get_stats))
-    app.add_handler(CommandHandler('export', export_data))
-    app.add_handler(CallbackQueryHandler(start, pattern="back_home"))
-    app.add_handler(CallbackQueryHandler(show_movies, pattern="^cat_"))
-    app.add_handler(CallbackQueryHandler(movie_detail, pattern="^mov_"))
-    app.add_handler(CallbackQueryHandler(view_episode, pattern="^viewep_"))
+    app.add_handler(CallbackQueryHandler(callbacks))
+    app.add_handler(MessageHandler(filters.TEXT | filters.PHOTO, admin_messages))
 
-    print("Bot is running...")
     app.run_polling()
+
+if __name__ == "__main__":
+    main()
