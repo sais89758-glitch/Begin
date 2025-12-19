@@ -4,7 +4,6 @@ import os
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 
-# /start command
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
         [InlineKeyboardButton("🎥 Movies", callback_data="movies")],
@@ -12,10 +11,16 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
 
-    await update.message.reply_text(
-        "🎬 Movie Bot မှ ကြိုဆိုပါတယ်!\n\nCategory ကိုရွေးပါ 👇",
-        reply_markup=reply_markup
-    )
+    if update.message:
+        await update.message.reply_text(
+            "🎬 Movie Bot မှ ကြိုဆိုပါတယ်!\n\nCategory ကိုရွေးပါ 👇",
+            reply_markup=reply_markup
+        )
+    elif update.callback_query:
+        await update.callback_query.message.reply_text(
+            "🎬 Movie Bot မှ ကြိုဆိုပါတယ်!\n\nCategory ကိုရွေးပါ 👇",
+            reply_markup=reply_markup
+        )
 
 # Button handler
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
