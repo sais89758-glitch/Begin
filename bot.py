@@ -9,12 +9,12 @@ from telegram.ext import (
 )
 
 # --- CONFIGURATION ---
-# Railway Variables ထဲမှာ BOT_TOKEN ကို သေချာထည့်ပေးထားပါ
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "8493660753:AAGW63blwBFI6xQVTh_73gHiuOrpvpB9ajA")
 ADMIN_IDS = [8466996343]  # သင်ပေးထားတဲ့ Admin ID
 
 # Conversation States
 ADD_CAT, ADD_POSTER, ADD_NAME, ADD_EPISODES = range(4)
+EDIT_SELECT, EDIT_ACTION = range(4, 6)
 
 # --- DATABASE SETUP ---
 def init_db():
@@ -42,7 +42,7 @@ CATEGORIES = {
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [[InlineKeyboardButton(name, callback_data=f"cat_{kid}")] for kid, name in CATEGORIES.items()]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    text = "🎬 Movie Bot မှ ကြိုဆိုပါတယ်!\n\nကြည့်ရှုလိုသော Category ကို ရွေးချယ်ပါ 👇"
+    text = "🎬 Movie Bot မှ ကြိုဆိုပါတယ်!\n\nCategory ကိုရွေးပါ 👇"
     
     if update.message:
         await update.message.reply_text(text, reply_markup=reply_markup)
@@ -63,7 +63,7 @@ async def show_movies(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [[InlineKeyboardButton(f"🎬 {m[1]}", callback_data=f"mov_{m[0]}")] for m in movies]
     keyboard.append([InlineKeyboardButton("⬅️ Back", callback_data="back_home")])
     
-    await query.edit_message_text(f"📂 {cat_name}\n\nဇာတ်လမ်းများ ရွေးချယ်ပါ 👇", reply_markup=InlineKeyboardMarkup(keyboard))
+    await query.edit_message_text(f"📂 {cat_name}\n\nဇာတ်လမ်းများ 👇", reply_markup=InlineKeyboardMarkup(keyboard))
 
 async def movie_detail(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -73,7 +73,7 @@ async def movie_detail(update: Update, context: ContextTypes.DEFAULT_TYPE):
     c = conn.cursor()
     c.execute("SELECT category, poster, name FROM movies WHERE id=?", (movie_id,))
     movie = c.fetchone()
-    c.execute("SELECT ep_num, link FROM episodes WHERE movie_id=?", (movie_id,))
+    c.execute("SELECT ep_num FROM episodes WHERE movie_id=? ORDER BY ep_num", (movie_id,))
     eps = c.fetchall()
     
     # Stats Logging
@@ -94,20 +94,18 @@ async def movie_detail(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.message.delete()
     await query.message.reply_photo(
         photo=movie[1],
-        caption=f"🎬 **Name:** {movie[2]}\n📂 **Category:** {movie[0]}\n\nကြည့်ရှုလိုသည့် အပိုင်းကို ရွေးပါ 👇",
+        caption=f"🎬 **Name:** {movie[2]}\n📂 **Category:** {movie[0]}\n\nအပိုင်းများကို ရွေးပါ 👇",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
 async def view_episode(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     _, mid, ep_num = query.data.split("_")
-    
     conn = sqlite3.connect('movie_bot.db')
     c = conn.cursor()
     c.execute("SELECT link FROM episodes WHERE movie_id=? AND ep_num=?", (mid, ep_num))
     link = c.fetchone()[0]
     conn.close()
-    
     await query.message.reply_text(f"📺 Episode {ep_num} Link:\n{link}")
     await query.answer()
 
@@ -116,29 +114,29 @@ async def view_episode(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id not in ADMIN_IDS: return
     keyboard = [[InlineKeyboardButton(v, callback_data=f"ac_{v}")] for v in CATEGORIES.values()]
-    await update.message.reply_text("➕ ဇာတ်လမ်းသစ်ထည့်ရန် Category ရွေးပါ:", reply_markup=InlineKeyboardMarkup(keyboard))
+    await update.message.reply_text("➕ Category ကိုရွေးပါ:", reply_markup=InlineKeyboardMarkup(keyboard))
     return ADD_CAT
 
 async def add_cat_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     context.user_data['cat'] = query.data.split("_")[1]
-    await query.edit_message_text("🖼️ Poster Link (Direct Image URL) ကို ပို့ပေးပါ:")
+    await query.edit_message_text("🖼️ Poster Link (URL) ကိုပို့ပါ:")
     return ADD_POSTER
 
 async def add_poster(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['poster'] = update.message.text
-    await update.message.reply_text("📝 ဇာတ်လမ်းအမည် (Name) ကို ပို့ပေးပါ:")
+    await update.message.reply_text("📝 ဇာတ်လမ်းအမည် ပို့ပါ:")
     return ADD_NAME
 
 async def add_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['name'] = update.message.text
     context.user_data['eps'] = []
-    await update.message.reply_text("🔗 Episode 1 ရဲ့ Link ကို ပို့ပါ (ပြီးဆုံးပါက /done ကို နှိပ်ပါ):")
+    await update.message.reply_text("🔗 Episode links ကို တစ်ခုချင်းပို့ပါ (ပြီးရင် /done နှိပ်ပါ):")
     return ADD_EPISODES
 
 async def add_ep_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['eps'].append(update.message.text)
-    await update.message.reply_text(f"✅ Episode {len(context.user_data['eps'])} ရပါပြီ။ နောက်ထပ် link ပို့ပါ (သို့မဟုတ်) /done နှိပ်ပါ။")
+    await update.message.reply_text(f"✅ Episode {len(context.user_data['eps'])} ရပါပြီ။ /done နှိပ်နိုင်ပါပြီ။")
     return ADD_EPISODES
 
 async def done_save(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -151,20 +149,27 @@ async def done_save(update: Update, context: ContextTypes.DEFAULT_TYPE):
         c.execute("INSERT INTO episodes (movie_id, ep_num, link) VALUES (?,?,?)", (mid, i, link))
     conn.commit()
     conn.close()
-    await update.message.reply_text(f"🎉 '{d['name']}' ကို အောင်မြင်စွာ ထည့်သွင်းပြီးပါပြီ!")
+    await update.message.reply_text(f"🎉 '{d['name']}' ထည့်သွင်းပြီးပါပြီ!")
     return ConversationHandler.END
 
-# --- ADMIN: STATS & EXPORT ---
+# --- ADMIN: STATS & COMMANDS ---
 
-async def stats_day(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def get_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id not in ADMIN_IDS: return
-    day = datetime.now().strftime('%Y-%m-%d')
+    cmd = update.message.text
     conn = sqlite3.connect('movie_bot.db')
     c = conn.cursor()
-    c.execute("SELECT COUNT(*) FROM stats WHERE timestamp LIKE ?", (f"{day}%",))
-    res = c.fetchone()[0]
+    
+    if "day" in cmd:
+        day = datetime.now().strftime('%Y-%m-%d')
+        c.execute("SELECT COUNT(*) FROM stats WHERE timestamp LIKE ?", (f"{day}%",))
+        await update.message.reply_text(f"📊 ယနေ့ကြည့်ရှုမှု: {c.fetchone()[0]} ကြိမ်")
+    elif "top" in cmd:
+        c.execute("SELECT m.name, COUNT(s.movie_id) as count FROM stats s JOIN movies m ON s.movie_id = m.id GROUP BY s.movie_id ORDER BY count DESC LIMIT 1")
+        res = c.fetchone()
+        await update.message.reply_text(f"🔝 အကြည့်အများဆုံး: {res[0]} ({res[1]} ကြိမ်)" if res else "ဒေတာမရှိသေးပါ။")
+    
     conn.close()
-    await update.message.reply_text(f"📊 ယနေ့ ကြည့်ရှုမှုစုစုပေါင်း: {res} ကြိမ်")
 
 async def export_data(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id not in ADMIN_IDS: return
@@ -179,12 +184,10 @@ async def export_data(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_document(document=open('history.csv', 'rb'))
 
 # --- MAIN ---
-
 if __name__ == '__main__':
     init_db()
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
-    # Conversation for adding movies
     add_conv = ConversationHandler(
         entry_points=[CommandHandler('admin', admin_panel)],
         states={
@@ -198,7 +201,7 @@ if __name__ == '__main__':
 
     app.add_handler(add_conv)
     app.add_handler(CommandHandler('start', start))
-    app.add_handler(CommandHandler('stats_day', stats_day))
+    app.add_handler(CommandHandler(['stats_day', 'top'], get_stats))
     app.add_handler(CommandHandler('export', export_data))
     app.add_handler(CallbackQueryHandler(start, pattern="back_home"))
     app.add_handler(CallbackQueryHandler(show_movies, pattern="^cat_"))
