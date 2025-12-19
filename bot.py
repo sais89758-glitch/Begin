@@ -335,19 +335,22 @@ async def stats_week(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # Main
 # ==============================
 
-def main():
-    init_db()
-    app = ApplicationBuilder().token(BOT_TOKEN).build()
+ADMIN_IDS = [8466996343]
 
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("admin", admin_panel))
-    app.add_handler(CommandHandler("stats_day", stats_day))
-    app.add_handler(CommandHandler("stats_week", stats_week))
+async def admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
 
-    app.add_handler(CallbackQueryHandler(callbacks))
-    app.add_handler(MessageHandler(filters.TEXT | filters.PHOTO, admin_messages))
+    if user_id not in ADMIN_IDS:
+        await update.message.reply_text("❌ Admin မဟုတ်ပါ")
+        return
 
-    app.run_polling()
+    await update.message.reply_text(
+        "🛠 Admin Panel\n\n"
+        "➕ Movie ထည့်ရန်\n"
+        "✏️ Movie ပြင်ရန်\n"
+        "🗑 Movie ဖျက်ရန်"
+    )
+
 
 if __name__ == "__main__":
     main()
